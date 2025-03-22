@@ -1,0 +1,28 @@
+{
+  "name": "vibe-eyes-client",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rollup -c",
+    "dev": "rollup -c -w"
+  },
+  "keywords": [
+    "game",
+    "debug",
+    "canvas",
+    "screenshot"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "Client library for integrating browser games with Vibe Eyes MCP debug server",
+  "dependencies": {
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-terser": "^0.4.0",
+    "rollup": "^4.0.0"
+  }
+}
