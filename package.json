@@ -11,11 +11,21 @@
     "game",
     "debug",
     "canvas",
-    "screenshot"
+    "screenshot",
+    "visualization",
+    "svg"
   ],
-  "author": "",
+  "author": "Luis Montes",
   "license": "ISC",
   "description": "Client library for integrating browser games with Vibe Eyes MCP debug server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monteslu/vibe-eyes-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/monteslu/vibe-eyes-client/issues"
+  },
+  "homepage": "https://github.com/monteslu/vibe-eyes-client#readme",
   "dependencies": {
     "socket.io-client": "^4.8.1"
   },
