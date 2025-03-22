@@ -1,15 +1,16 @@
 # Vibe Eyes Client
 
-A lightweight client library to integrate browser games with the Vibe Eyes MCP debug server for real-time debugging, visualization, and analysis.
+A lightweight client library to integrate browser games with the [Vibe Eyes MCP debug server](https://github.com/monteslu/vibe-eyes) for real-time debugging, visualization, and analysis.
 
 ## Features
 
-- Canvas screenshot capture and streaming
+- Automatic canvas screenshot capture and streaming
 - Console log and error collection with timestamps
 - Global error and unhandled promise rejection handling
-- SVG visualization display from server feedback
+- SVG visualization display in a dedicated debug window
+- Complete debug stats with SVG size measurements
 - Minimal performance impact on games
-- Configurable capture rate and display settings
+- Robust error handling with graceful connection recovery
 - Multiple build formats (UMD, ESM, IIFE)
 
 ## Installation
@@ -31,6 +32,7 @@ Or include directly in your HTML:
 ```js
 // Initialize with default settings (auto-connects to http://localhost:8869)
 // Available globally when using the script tag
+// The client will automatically start capturing once connected
 initializeVibeEyes();
 
 // Or use the existing client instance directly
@@ -44,7 +46,6 @@ window.VibeEyesClient.initialize();
 initializeVibeEyes({
   serverUrl: 'http://your-debug-server:8869',
   captureDelay: 2000,   // Screenshot every 2 seconds
-  autoCapture: true,    // Start capturing immediately
   maxLogs: 50,          // Store more logs
   canvasId: 'my-canvas' // Specific canvas to capture
 });
@@ -65,40 +66,38 @@ initializeVibeEyes({
 // Get the client instance
 const client = window.VibeEyesClient;
 
-// Start/stop capturing manually
-client.startCaptureLoop();
+// Explicitly stop/restart capturing if needed
 client.stopCaptureLoop();
+client.startCaptureLoop();
 ```
 
 ### Displaying SVG Visualizations
 
-Vibe Eyes MCP server can send back SVG visualizations that you can display in your game:
+Vibe Eyes MCP server sends back SVG visualizations that you can display in a dedicated debug window:
 
 ```js
 // Get the client from initialization
 const client = initializeVibeEyes();
 
-// Enable SVG display with default settings (top-right corner)
+// Enable SVG display - opens a new debug window with SVG and stats
 client.enableSvgDisplay();
 
-// Or with custom options
+// You can optionally provide a custom container
 client.enableSvgDisplay({
-  position: 'bottom-left', // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
-  width: 400,
-  height: 200,
-  zIndex: 1000,
-  container: '#my-custom-container' // Optional existing container
+  container: '#my-custom-container' // Optional existing container element
 });
 
 // Toggle the display on/off
 client.toggleSvgDisplay();
 
-// Disable the display
+// Disable the display (closes the debug window)
 client.disableSvgDisplay();
-
-// Disable and remove the container
-client.disableSvgDisplay(true);
 ```
+
+The debug window shows:
+- The SVG visualization at the top
+- Complete response statistics at the bottom, including SVG size
+- Updates in real-time as new data arrives from the server
 
 ## Configuration Options
 
@@ -111,18 +110,13 @@ client.disableSvgDisplay(true);
 | maxLogs | 10 | Maximum stored console logs |
 | maxErrors | 10 | Maximum stored error logs |
 | autoConnect | true | Connect on initialization |
-| autoCapture | false | Start capturing on connect |
 | canvasId | null | ID of specific canvas to capture (null = auto-detect) |
 
 ### SVG Display Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| container | null | Element or selector for SVG container (creates one if null) |
-| position | 'top-right' | Position on screen: 'top-left', 'top-right', 'bottom-left', 'bottom-right' |
-| width | 300 | Width of the SVG container in pixels |
-| height | 300 | Height of the SVG container in pixels |
-| zIndex | 9999 | CSS z-index for the container |
+| container | null | Element or selector for SVG container (creates popup window if null) |
 
 ## Build Formats
 
@@ -132,6 +126,10 @@ The following build formats are available in the `dist/` directory:
 - `vibe-eyes.js` - Unminified UMD build for debugging
 - `vibe-eyes.iife.js` - IIFE build with globals for direct browser use
 - `vibe-eyes.esm.js` - ES Module for modern bundlers and environments
+
+## Related Projects
+
+- [Vibe Eyes MCP Server](https://github.com/monteslu/vibe-eyes) - The companion server that processes debug data and generates visualizations
 
 ## License
 

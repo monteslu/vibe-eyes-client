@@ -4062,7 +4062,12 @@
         this.initialized = false;
         this.svgDisplayEnabled = false;
         this.svgContainer = null;
+        this.svgWindow = null;
+        this.statsContainer = null;
         this.lastSvgData = null;
+        this.lastResponseData = null;
+        this._windowMessageListenerSet = false;
+        this._windowWasEverOpened = false;
         
         // Set up console proxies (always do this to collect logs)
         this.setupConsoleProxy();
@@ -4097,6 +4102,9 @@
         
         // Connect to server
         this.connectToServer();
+        
+        // Start checking for connection and autostart capture
+        this.checkConnectionAndCapture();
         
         return this;
       }
@@ -4147,10 +4155,8 @@
           this.socket.on('connect', () => {
             this.isConnected = true;
             
-            // Start capture loop after connection, but only if autoCapture is enabled
-            if (this.config.autoCapture) {
-              this.startCaptureLoop();
-            }
+            // Start capture loop after connection
+            this.startCaptureLoop();
           });
           
           this.socket.on('disconnect', () => {
@@ -4167,7 +4173,11 @@
           // Listen for SVG data from server
           this.socket.on('svgData', (svgData) => {
             this.lastSvgData = svgData;
-            if (this.svgDisplayEnabled && this.svgContainer) {
+            if (this.svgDisplayEnabled) {
+              // Create container if it doesn't exist
+              if (!this.svgContainer) {
+                this.enableSvgDisplay();
+              }
               this.updateSvgDisplay();
             }
           });
@@ -4290,67 +4300,37 @@
       }
       
       /**
+       * Check connection and start capture when connected
+       * @private
+       */
+      checkConnectionAndCapture() {
+        if (this.isConnected) {
+          this.startCaptureLoop();
+        } else {
+          // Not connected yet, check again in 1 second
+          setTimeout(() => this.checkConnectionAndCapture(), 1000);
+        }
+      }
+      
+      /**
        * Enable displaying SVG data from the server in the DOM
        * @param {Object} options - Display options
        * @param {HTMLElement|string} [options.container] - Container element or CSS selector for the SVG
-       * @param {string} [options.position='top-right'] - Position: 'top-left', 'top-right', 'bottom-left', 'bottom-right'
-       * @param {number} [options.width=300] - Width of the SVG container
-       * @param {number} [options.height=300] - Height of the SVG container
-       * @param {number} [options.zIndex=9999] - z-index of the container
        * @returns {VibeEyesClient} The client instance for chaining
        */
       enableSvgDisplay(options = {}) {
-        // Set defaults for options
-        const defaultOptions = {
-          container: null,
-          position: 'top-right',
-          width: 300,
-          height: 300,
-          zIndex: 9999
-        };
-        
-        const displayOptions = { ...defaultOptions, ...options };
-        
         // If a container is provided, use it
-        if (displayOptions.container) {
-          if (typeof displayOptions.container === 'string') {
-            this.svgContainer = document.querySelector(displayOptions.container);
+        if (options.container) {
+          if (typeof options.container === 'string') {
+            this.svgContainer = document.querySelector(options.container);
           } else {
-            this.svgContainer = displayOptions.container;
+            this.svgContainer = options.container;
           }
         }
         
         // If no container or container not found, create one
         if (!this.svgContainer) {
           this.svgContainer = document.createElement('div');
-          this.svgContainer.style.position = 'fixed';
-          this.svgContainer.style.width = `${displayOptions.width}px`;
-          this.svgContainer.style.height = `${displayOptions.height}px`;
-          this.svgContainer.style.zIndex = displayOptions.zIndex;
-          this.svgContainer.style.background = 'rgba(0, 0, 0, 0.1)';
-          this.svgContainer.style.borderRadius = '5px';
-          this.svgContainer.style.overflow = 'hidden';
-          
-          // Position the container
-          switch (displayOptions.position) {
-            case 'top-left':
-              this.svgContainer.style.top = '10px';
-              this.svgContainer.style.left = '10px';
-              break;
-            case 'top-right':
-              this.svgContainer.style.top = '10px';
-              this.svgContainer.style.right = '10px';
-              break;
-            case 'bottom-left':
-              this.svgContainer.style.bottom = '10px';
-              this.svgContainer.style.left = '10px';
-              break;
-            case 'bottom-right':
-              this.svgContainer.style.bottom = '10px';
-              this.svgContainer.style.right = '10px';
-              break;
-          }
-          
           document.body.appendChild(this.svgContainer);
         }
         
@@ -4366,16 +4346,24 @@
       
       /**
        * Disable SVG display
-       * @param {boolean} [removeContainer=false] - Whether to remove the container from the DOM
        * @returns {VibeEyesClient} The client instance for chaining
        */
-      disableSvgDisplay(removeContainer = false) {
+      disableSvgDisplay() {
         this.svgDisplayEnabled = false;
         
-        if (removeContainer && this.svgContainer && this.svgContainer.parentNode) {
-          this.svgContainer.parentNode.removeChild(this.svgContainer);
-          this.svgContainer = null;
+        // Always close the window when disabling
+        if (this.svgWindow && !this.svgWindow.closed) {
+          try {
+            this.svgWindow.close();
+          } catch (e) {
+            console.warn('[Vibe-Eyes] Error closing debug window:', e.message);
+          }
         }
+        
+        // Reset all references
+        this.svgWindow = null;
+        this.svgContainer = null;
+        this.statsContainer = null;
         
         return this;
       }
@@ -4400,16 +4388,160 @@
        * @private
        */
       updateSvgDisplay() {
-        if (!this.svgContainer || !this.lastSvgData) return;
+        if (!this.lastSvgData) return;
         
-        // Update the SVG content
-        this.svgContainer.innerHTML = this.lastSvgData;
-        
-        // Make sure any SVG elements fill the container
-        const svgElements = this.svgContainer.querySelectorAll('svg');
-        for (const svg of svgElements) {
-          svg.style.width = '100%';
-          svg.style.height = '100%';
+        try {
+          // Check if window exists and is still open
+          if (this.svgWindow && !this.svgWindow.closed) {
+            // Window exists and is open - try to access document to confirm it's working
+            try {
+              // This will throw if we can't access the document
+              const test = this.svgWindow.document.body;
+            } catch (e) {
+              // Can't access document, consider window closed
+              this.svgWindow = null;
+              this.svgContainer = null;
+              this.statsContainer = null;
+            }
+          }
+          
+          // Create a popup window if it doesn't exist or is closed
+          if (!this.svgWindow || this.svgWindow.closed) {
+            this.svgWindow = window.open('', 'VibeEyesDebug', 'width=800,height=800');
+            
+            // Check if window was successfully created
+            if (!this.svgWindow) {
+              // Since we just tried to create a window and failed, it's probably blocked
+              // However, if we previously had a window that's now null, it was likely just closed by the user
+              // Only show warning if this is the first attempt to open a window
+              if (!this._windowWasEverOpened) {
+                console.warn('[Vibe-Eyes] Failed to open debug window. Pop-up might be blocked.');
+              }
+              this.svgDisplayEnabled = false;
+              return;
+            }
+            
+            // Record that we successfully opened a window at least once
+            this._windowWasEverOpened = true;
+            
+            // Set up basic HTML structure
+            this.svgWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Vibe Eyes Debug View</title>
+              <style>
+                body { margin: 0; padding: 0; font-family: sans-serif; }
+                #svgContainer { width: 100%; height: 500px; overflow: hidden; display: flex; justify-content: center; }
+                #statsContainer { padding: 20px; overflow: auto; height: 300px; box-sizing: border-box; }
+                h3 { margin-top: 0; }
+                pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow: auto; }
+              </style>
+            </head>
+            <body>
+              <div id="svgContainer"></div>
+              <div id="statsContainer">
+                <h3>Debug Stats</h3>
+                <pre id="statsContent">Waiting for data...</pre>
+              </div>
+              
+              <script>
+                // Handle window close event
+                window.addEventListener('beforeunload', function() {
+                  if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage('debugWindowClosed', '*');
+                  }
+                });
+                
+                // Function to resize SVG to fit window
+                function resizeSvg() {
+                  const svgElements = document.querySelectorAll('svg');
+                  for (const svg of svgElements) {
+                    // Only modify styles, not attributes
+                    svg.style.width = '100%';
+                    svg.style.maxWidth = '100%';
+                  }
+                }
+                
+                // Resize on window resize
+                window.addEventListener('resize', resizeSvg);
+                
+                // Also call it after a short delay to ensure SVG is loaded
+                setTimeout(resizeSvg, 100);
+              </script>
+            </body>
+          </html>
+        `);
+            this.svgWindow.document.close();
+            
+            // Set up message listener to detect window closure (if not already set up)
+            if (!this._windowMessageListenerSet) {
+              window.addEventListener('message', (event) => {
+                if (event.data === 'debugWindowClosed') {
+                  // User manually closed the window
+                  console.log('[Vibe-Eyes] Debug window closed by user');
+                  this.svgWindow = null;
+                  this.svgContainer = null;
+                  this.statsContainer = null;
+                  
+                  // Keep the display enabled so it will reopen next time
+                }
+              });
+              this._windowMessageListenerSet = true;
+            }
+            
+            // Get references to containers in the popup
+            this.svgContainer = this.svgWindow.document.getElementById('svgContainer');
+            this.statsContainer = this.svgWindow.document.getElementById('statsContent');
+          }
+          
+          // Update the SVG content - only if we have valid references
+          if (this.svgContainer && this.svgWindow && !this.svgWindow.closed) {
+            try {
+              this.svgContainer.innerHTML = this.lastSvgData;
+              
+              // Make SVG fill the container width using only style properties
+              const svgElements = this.svgContainer.querySelectorAll('svg');
+              for (const svg of svgElements) {
+                svg.style.width = '100%';
+                svg.style.maxWidth = '100%';
+              }
+            } catch (e) {
+              // Error accessing container - window likely closed
+              console.warn('[Vibe-Eyes] Error updating SVG display:', e.message);
+              this.svgWindow = null;
+              this.svgContainer = null;
+              this.statsContainer = null;
+              return;
+            }
+          }
+          
+          // Update stats if we have response data
+          if (this.statsContainer && this.lastResponseData && this.svgWindow && !this.svgWindow.closed) {
+            try {
+              // Remove svg from displayed stats to avoid duplication and clutter
+              const statsCopy = { ...this.lastResponseData };
+              if (statsCopy.svg) {
+                // Calculate and show SVG size in characters
+                const charCount = statsCopy.svg.length;
+                statsCopy.svg = `[SVG data shown above - ${charCount} characters]`;
+              }
+              
+              this.statsContainer.textContent = JSON.stringify(statsCopy, null, 2);
+            } catch (e) {
+              // Error accessing stats container - window likely closed
+              console.warn('[Vibe-Eyes] Error updating stats display:', e.message);
+              this.svgWindow = null;
+              this.svgContainer = null;
+              this.statsContainer = null;
+            }
+          }
+        } catch (e) {
+          console.warn('[Vibe-Eyes] Error in SVG display:', e.message);
+          // Reset all references to be safe
+          this.svgWindow = null;
+          this.svgContainer = null;
+          this.statsContainer = null;
         }
       }
       
@@ -4448,6 +4580,17 @@
           
           // Send to server and wait for acknowledgment
           this.socket.emit('debugCapture', message, (response) => {
+            // Check if response contains SVG data
+            if (response) {
+              this.lastResponseData = response;
+              if (response.svg) {
+                this.lastSvgData = response.svg;
+                if (this.svgDisplayEnabled) {
+                  this.updateSvgDisplay();
+                }
+              }
+            }
+            
             // Schedule next capture after server acknowledges receipt
             this.captureTimeout = setTimeout(
               () => this.captureAndSend(),

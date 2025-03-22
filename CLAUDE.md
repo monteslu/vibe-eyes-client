@@ -7,6 +7,12 @@
 - **Testing**: Integrate in a game project with `<script src="dist/vibe-eyes.min.js"></script>`
 - **Integration**: Use `const client = initializeVibeEyes()` to get client instance
 
+## Key Features
+- **Auto-initialization**: Client automatically starts capturing when connected to a server
+- **Robust SVG display**: Visualizations display in a separate window with debug info
+- **Error resilience**: Graceful handling of disconnections and window closures
+- **Non-blocking**: Asynchronous operations with proper error handling
+
 ## Code Style Guidelines
 - **Formatting**: Use 2-space indentation
 - **Imports**: ES Modules preferred, with fallback to CommonJS
@@ -22,6 +28,7 @@
 ## Project Purpose
 - Client library to integrate into browser games for debugging with the Vibe Eyes MCP server
 - Captures canvas screenshots, console logs, and error information
-- Displays SVG visualizations from the server in configurable overlay
+- Displays SVG visualizations from the server in a separate debug window
 - Uses Socket.io to stream debug data to the server
 - Non-invasive design with minimal performance impact on games
+- Provides real-time debug information through an easily accessible interface
