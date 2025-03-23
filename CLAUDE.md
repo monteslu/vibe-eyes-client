@@ -2,7 +2,7 @@
 
 A client library that integrates into browser games for debugging and visualization. This allows AI to SEE the game it's working on in real time!
 
-![Happy Face](happy.jpg)
+<img src="happy.jpg" alt="Happy Face" width="50%">
 
 ## Version 1.1.0
 This is version 1.1.0 of the Vibe Eyes Client, which adds support for:

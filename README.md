@@ -4,7 +4,7 @@ A lightweight client library to integrate browser games with the [Vibe Eyes MCP 
 
 This allows AI to SEE the game it's working on in real time!
 
-![Happy Face](happy.jpg)
+<img src="happy.jpg" alt="Happy Face" width="50%">
 
 ## Features
 
