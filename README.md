@@ -2,6 +2,10 @@
 
 A lightweight client library to integrate browser games with the [Vibe Eyes MCP debug server](https://github.com/monteslu/vibe-eyes) for real-time debugging, visualization, and analysis.
 
+This allows AI to SEE the game it's working on in real time!
+
+![Happy Face](happy.jpg)
+
 ## Features
 
 - Automatic canvas screenshot capture and streaming
@@ -12,6 +16,14 @@ A lightweight client library to integrate browser games with the [Vibe Eyes MCP 
 - Minimal performance impact on games
 - Robust error handling with graceful connection recovery
 - Multiple build formats (UMD, ESM, IIFE)
+
+## What's New in 1.1.0
+
+- **Disconnected SVG Display**: Debug window now works even when not connected to server
+- **Connection Status Visualization**: Show real-time connection status with visual feedback
+- **Smart Window Positioning**: Position debug window relative to game window (right, left, top, bottom)
+- **Responsive Defaults**: Debug window size defaults to 75% of game window dimensions
+- **Improved Error Handling**: Better handling of window closures and reconnection scenarios
 
 ## Installation
 
@@ -87,6 +99,18 @@ client.enableSvgDisplay({
   container: '#my-custom-container' // Optional existing container element
 });
 
+// Configure the debug window position and size (all options are optional)
+const client = initializeVibeEyes({
+  serverUrl: 'http://localhost:8869',
+  debugWindow: {
+    // All debugWindow properties are optional with sensible defaults
+    width: 500,                // Optional: Width in pixels (default: 75% of game window width)
+    height: 600,               // Optional: Height in pixels (default: 75% of game window height)
+    position: 'right'          // Optional: Position relative to game window (default: 'right')
+    // Possible positions: 'right', 'left', 'top', 'bottom', 'detached'
+  }
+});
+
 // Toggle the display on/off
 client.toggleSvgDisplay();
 
@@ -101,6 +125,8 @@ The debug window shows:
 
 ## Configuration Options
 
+All configuration options are optional and have sensible defaults.
+
 ### Client Initialization Options
 
 | Option | Default | Description |
@@ -111,12 +137,21 @@ The debug window shows:
 | maxErrors | 10 | Maximum stored error logs |
 | autoConnect | true | Connect on initialization |
 | canvasId | null | ID of specific canvas to capture (null = auto-detect) |
+| debugWindow | Object | Configuration for the debug window (see below) |
 
 ### SVG Display Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | container | null | Element or selector for SVG container (creates popup window if null) |
+
+### Debug Window Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| width | null | Width of the debug window in pixels (null = 75% of game window width) |
+| height | null | Height of the debug window in pixels (null = 75% of game window height) |
+| position | 'right' | Position relative to the game window: 'right', 'left', 'top', 'bottom', or 'detached' |
 
 ## Build Formats
 

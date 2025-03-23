@@ -4042,13 +4042,61 @@
       maxErrors: 10,      // Maximum number of errors to store
       autoConnect: true,  // Connect automatically by default
       autoCapture: false, // Don't start capturing automatically unless specified
-      canvasId: null      // Canvas element ID to capture (null = auto-detect)
+      canvasId: null,     // Canvas element ID to capture (null = auto-detect)
+      debugWindow: {      // Configuration for the debug window
+        width: null,      // Width of the debug window (null = 75% of game window width)
+        height: null,     // Height of the debug window (null = 75% of game window height)
+        position: 'right' // Position relative to the game window ('right', 'left', 'top', 'bottom', or 'detached')
+      }
     };
 
     class VibeEyesClient {
+      /**
+       * Deep merge two objects
+       * @private
+       * @param {Object} target - Target object to merge into
+       * @param {Object} source - Source object to merge from
+       * @returns {Object} Merged object
+       */
+      _deepMerge(target, source) {
+        // Handle case where source might be undefined
+        if (!source) return target;
+        
+        const output = { ...target };
+        
+        if (this._isObject(target) && this._isObject(source)) {
+          Object.keys(source).forEach(key => {
+            // Skip undefined properties
+            if (source[key] === undefined) return;
+            
+            if (this._isObject(source[key])) {
+              if (!(key in target)) {
+                output[key] = source[key];
+              } else {
+                output[key] = this._deepMerge(target[key], source[key]);
+              }
+            } else {
+              output[key] = source[key];
+            }
+          });
+        }
+        
+        return output;
+      }
+      
+      /**
+       * Check if value is an object
+       * @private
+       * @param {*} item - Item to check
+       * @returns {boolean} True if item is an object
+       */
+      _isObject(item) {
+        return (item && typeof item === 'object' && !Array.isArray(item));
+      }
+
       constructor(config = {}) {
-        // Merge default config with user config
-        this.config = { ...DEFAULT_CONFIG, ...config };
+        // Deep merge default config with user config
+        this.config = this._deepMerge(DEFAULT_CONFIG, config);
         
         // Initialize state
         this.socket = null;
@@ -4068,6 +4116,7 @@
         this.lastResponseData = null;
         this._windowMessageListenerSet = false;
         this._windowWasEverOpened = false;
+        this._statusRefreshInterval = null;
         
         // Set up console proxies (always do this to collect logs)
         this.setupConsoleProxy();
@@ -4173,6 +4222,13 @@
           // Listen for SVG data from server
           this.socket.on('svgData', (svgData) => {
             this.lastSvgData = svgData;
+            
+            // Clear status refresh interval if it's running since we now have real data
+            if (this._statusRefreshInterval) {
+              clearInterval(this._statusRefreshInterval);
+              this._statusRefreshInterval = null;
+            }
+            
             if (this.svgDisplayEnabled) {
               // Create container if it doesn't exist
               if (!this.svgContainer) {
@@ -4336,9 +4392,20 @@
         
         this.svgDisplayEnabled = true;
         
-        // If we already have SVG data, display it
-        if (this.lastSvgData) {
-          this.updateSvgDisplay();
+        // Always update the display - will show connection status if not connected
+        this.updateSvgDisplay();
+        
+        // If we're not connected, start a refresh interval to update connection status
+        if (!this.isConnected && !this._statusRefreshInterval) {
+          this._statusRefreshInterval = setInterval(() => {
+            if (this.svgDisplayEnabled && !this.isConnected) {
+              this.updateSvgDisplay();
+            } else if (this.isConnected && this._statusRefreshInterval) {
+              // Clear the interval once we're connected
+              clearInterval(this._statusRefreshInterval);
+              this._statusRefreshInterval = null;
+            }
+          }, 1000);
         }
         
         return this;
@@ -4358,6 +4425,12 @@
           } catch (e) {
             console.warn('[Vibe-Eyes] Error closing debug window:', e.message);
           }
+        }
+        
+        // Clear status refresh interval if it's running
+        if (this._statusRefreshInterval) {
+          clearInterval(this._statusRefreshInterval);
+          this._statusRefreshInterval = null;
         }
         
         // Reset all references
@@ -4384,12 +4457,37 @@
       }
       
       /**
+       * Generate status SVG with connection information
+       * @private
+       * @returns {string} SVG markup for connection status
+       */
+      _generateStatusSvg() {
+        const statusColor = this.isConnected ? '#4CAF50' : '#F44336';
+        const statusText = this.isConnected ? 'Connected' : 'Disconnected';
+        const serverUrl = this.config.serverUrl || 'not configured';
+        
+        // Use a responsive SVG that adapts to container width
+        return `
+      <svg width="100%" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+        <rect width="100%" height="100%" fill="#f8f8f8" />
+        <circle cx="200" cy="100" r="30" fill="${statusColor}" />
+        <text x="200" y="160" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold">${statusText}</text>
+        <text x="200" y="200" text-anchor="middle" font-family="sans-serif" font-size="14">Server: ${serverUrl}</text>
+        <text x="200" y="230" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#666">
+          ${this.isConnected ? 'Receiving data from server' : 'Waiting for connection...'}
+        </text>
+        <text x="200" y="260" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#888">
+          ${new Date().toLocaleTimeString()} - Vibe Eyes Debug
+        </text>
+      </svg>
+    `;
+      }
+
+      /**
        * Update the SVG display with the latest data
        * @private
        */
       updateSvgDisplay() {
-        if (!this.lastSvgData) return;
-        
         try {
           // Check if window exists and is still open
           if (this.svgWindow && !this.svgWindow.closed) {
@@ -4407,7 +4505,59 @@
           
           // Create a popup window if it doesn't exist or is closed
           if (!this.svgWindow || this.svgWindow.closed) {
-            this.svgWindow = window.open('', 'VibeEyesDebug', 'width=800,height=800');
+            // Get debug window configuration (all properties are optional)
+            const debugConfig = this.config.debugWindow || {};
+            
+            // Get the game window position and dimensions
+            const gameRect = window.document.documentElement.getBoundingClientRect();
+            const gameLeft = window.screenLeft || window.screenX || 0;
+            const gameTop = window.screenTop || window.screenY || 0;
+            const gameWidth = window.outerWidth;
+            const gameHeight = window.outerHeight;
+            
+            // Use 75% of game window dimensions as default if width/height not specified
+            const defaultWidth = Math.round(gameWidth * 0.75);
+            const defaultHeight = Math.round(gameHeight * 0.75);
+            
+            // Use configuration values or calculated defaults
+            const width = typeof debugConfig.width === 'number' ? debugConfig.width : defaultWidth;
+            const height = typeof debugConfig.height === 'number' ? debugConfig.height : defaultHeight;
+            const position = debugConfig.position || 'right';
+            
+            // Calculate position relative to the game window
+            let left, top;
+            
+            // Calculate the position of the debug window relative to the game window
+            switch (position) {
+              case 'right':
+                left = gameLeft + gameWidth;
+                top = gameTop;
+                break;
+              case 'left':
+                left = Math.max(0, gameLeft - width);
+                top = gameTop;
+                break;
+              case 'top':
+                left = gameLeft;
+                top = Math.max(0, gameTop - height);
+                break;
+              case 'bottom':
+                left = gameLeft;
+                top = gameTop + gameHeight;
+                break;
+              case 'detached':
+              default:
+                // Center on screen
+                left = (window.screen.width - width) / 2;
+                top = (window.screen.height - height) / 2;
+                break;
+            }
+            
+            // Construct window features string
+            const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+            
+            // Open the window with the calculated position and size
+            this.svgWindow = window.open('', 'VibeEyesDebug', features);
             
             // Check if window was successfully created
             if (!this.svgWindow) {
@@ -4431,11 +4581,46 @@
             <head>
               <title>Vibe Eyes Debug View</title>
               <style>
-                body { margin: 0; padding: 0; font-family: sans-serif; }
-                #svgContainer { width: 100%; height: 500px; overflow: hidden; display: flex; justify-content: center; }
-                #statsContainer { padding: 20px; overflow: auto; height: 300px; box-sizing: border-box; }
-                h3 { margin-top: 0; }
-                pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow: auto; }
+                body { 
+                  margin: 0; 
+                  padding: 0; 
+                  font-family: sans-serif;
+                  display: flex;
+                  flex-direction: column;
+                  height: 100vh;
+                  overflow: hidden;
+                }
+                #svgContainer { 
+                  width: 100%; 
+                  flex: 1;
+                  min-height: 300px;
+                  overflow: hidden; 
+                  display: flex; 
+                  justify-content: center;
+                  align-items: center;
+                  background-color: #f8f8f8;
+                }
+                #statsContainer { 
+                  padding: 10px; 
+                  overflow: auto; 
+                  height: 300px; 
+                  box-sizing: border-box;
+                  border-top: 1px solid #ddd;
+                }
+                h3 { 
+                  margin-top: 5px;
+                  margin-bottom: 10px;
+                  font-size: 14px;
+                  color: #333;
+                }
+                pre { 
+                  background: #f5f5f5; 
+                  padding: 8px; 
+                  border-radius: 4px; 
+                  overflow: auto;
+                  font-size: 12px;
+                  margin: 0;
+                }
               </style>
             </head>
             <body>
@@ -4493,12 +4678,46 @@
             // Get references to containers in the popup
             this.svgContainer = this.svgWindow.document.getElementById('svgContainer');
             this.statsContainer = this.svgWindow.document.getElementById('statsContent');
+            
+            // Set up auto-refresh for connection status when not connected
+            if (!this.isConnected) {
+              // Create a refresh interval to update the status display
+              this._statusRefreshInterval = setInterval(() => {
+                if (this.svgContainer && this.svgWindow && !this.svgWindow.closed && !this.isConnected) {
+                  this.svgContainer.innerHTML = this._generateStatusSvg();
+                  // Update the stats too
+                  if (this.statsContainer) {
+                    const statusInfo = {
+                      connection: {
+                        status: this.isConnected ? "Connected" : "Disconnected",
+                        server: this.config.serverUrl,
+                        lastAttempt: new Date().toISOString()
+                      },
+                      clientInfo: {
+                        initialized: this.initialized,
+                        captureEnabled: this.isCapturing,
+                        consoleLogsCollected: this.console_logs.length,
+                        consoleErrorsCollected: this.console_errors.length,
+                        hasUnhandledException: !!this.unhandled_exception
+                      }
+                    };
+                    this.statsContainer.textContent = JSON.stringify(statusInfo, null, 2);
+                  }
+                } else if (!this.svgWindow || this.svgWindow.closed) {
+                  // Window was closed, clear the interval
+                  clearInterval(this._statusRefreshInterval);
+                }
+              }, 1000); // Update every second
+            }
           }
+          
+          // Determine what content to show: lastSvgData if available, otherwise status SVG
+          const svgContent = this.lastSvgData || this._generateStatusSvg();
           
           // Update the SVG content - only if we have valid references
           if (this.svgContainer && this.svgWindow && !this.svgWindow.closed) {
             try {
-              this.svgContainer.innerHTML = this.lastSvgData;
+              this.svgContainer.innerHTML = svgContent;
               
               // Make SVG fill the container width using only style properties
               const svgElements = this.svgContainer.querySelectorAll('svg');
@@ -4516,18 +4735,37 @@
             }
           }
           
-          // Update stats if we have response data
-          if (this.statsContainer && this.lastResponseData && this.svgWindow && !this.svgWindow.closed) {
+          // Update stats based on what we have
+          if (this.statsContainer && this.svgWindow && !this.svgWindow.closed) {
             try {
-              // Remove svg from displayed stats to avoid duplication and clutter
-              const statsCopy = { ...this.lastResponseData };
-              if (statsCopy.svg) {
-                // Calculate and show SVG size in characters
-                const charCount = statsCopy.svg.length;
-                statsCopy.svg = `[SVG data shown above - ${charCount} characters]`;
+              if (this.lastResponseData) {
+                // Remove svg from displayed stats to avoid duplication and clutter
+                const statsCopy = { ...this.lastResponseData };
+                if (statsCopy.svg) {
+                  // Calculate and show SVG size in characters
+                  const charCount = statsCopy.svg.length;
+                  statsCopy.svg = `[SVG data shown above - ${charCount} characters]`;
+                }
+                
+                this.statsContainer.textContent = JSON.stringify(statsCopy, null, 2);
+              } else {
+                // If we don't have response data, show connection status
+                const statusInfo = {
+                  connection: {
+                    status: this.isConnected ? "Connected" : "Disconnected",
+                    server: this.config.serverUrl,
+                    lastAttempt: new Date().toISOString()
+                  },
+                  clientInfo: {
+                    initialized: this.initialized,
+                    captureEnabled: this.isCapturing,
+                    consoleLogsCollected: this.console_logs.length,
+                    consoleErrorsCollected: this.console_errors.length,
+                    hasUnhandledException: !!this.unhandled_exception
+                  }
+                };
+                this.statsContainer.textContent = JSON.stringify(statusInfo, null, 2);
               }
-              
-              this.statsContainer.textContent = JSON.stringify(statsCopy, null, 2);
             } catch (e) {
               // Error accessing stats container - window likely closed
               console.warn('[Vibe-Eyes] Error updating stats display:', e.message);
