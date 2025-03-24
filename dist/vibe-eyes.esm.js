@@ -4720,23 +4720,11 @@ class VibeEyesClient {
       // Update the SVG content - only if we have valid references
       if (this.svgContainer && this.svgWindow && !this.svgWindow.closed) {
         try {
-          // For SVG data from the server (lastSvgData), insert it directly
-          if (this.lastSvgData && svgContent === this.lastSvgData) {
-            this.svgContainer.innerHTML = svgContent;
-            
-            // Make SVG fill the container width using only style properties
-            const svgElements = this.svgContainer.querySelectorAll('svg');
-            for (const svg of svgElements) {
-              svg.style.width = '100%';
-              svg.style.maxWidth = '100%';
-            }
-          } else {
-            // For our status SVG, convert to data URL for img tag
-            const svgDataUrl = this._convertSvgToDataUrl(svgContent);
-            
-            // Use an img tag for better scaling
-            this.svgContainer.innerHTML = `<img src="${svgDataUrl}" alt="Debug Visualization" style="width:100%; max-height:100%; object-fit:contain;">`;
-          }
+          // Always convert SVG to data URL for img tag
+          const svgDataUrl = this._convertSvgToDataUrl(svgContent);
+          
+          // Use an img tag for consistent display and better scaling
+          this.svgContainer.innerHTML = `<img src="${svgDataUrl}" alt="Debug Visualization" style="width:100%; max-height:100%; object-fit:contain;">`;
         } catch (e) {
           // Error accessing container - window likely closed
           console.warn('[Vibe-Eyes] Error updating SVG display:', e.message);
