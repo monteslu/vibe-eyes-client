@@ -428,6 +428,26 @@ class VibeEyesClient {
   }
   
   /**
+   * Convert SVG string to a data URL for use in an image tag
+   * @private
+   * @param {string} svgString - The SVG content as a string
+   * @returns {string} Data URL containing the SVG
+   */
+  _convertSvgToDataUrl(svgString) {
+    // Make sure SVG string is properly formatted
+    if (!svgString.trim().startsWith('<svg')) {
+      console.warn('[Vibe-Eyes] Invalid SVG content received');
+      return '';
+    }
+    
+    // Encode the SVG string as base64
+    const encoded = btoa(unescape(encodeURIComponent(svgString)));
+    
+    // Create a data URL
+    return `data:image/svg+xml;base64,${encoded}`;
+  }
+  
+  /**
    * Generate status SVG with connection information
    * @private
    * @returns {string} SVG markup for connection status
@@ -436,22 +456,18 @@ class VibeEyesClient {
     const statusColor = this.isConnected ? '#4CAF50' : '#F44336';
     const statusText = this.isConnected ? 'Connected' : 'Disconnected';
     const serverUrl = this.config.serverUrl || 'not configured';
+    const timestamp = new Date().toLocaleTimeString();
+    const connectionMsg = this.isConnected ? 'Receiving data from server' : 'Waiting for connection...';
     
-    // Use a responsive SVG that adapts to container width
-    return `
-      <svg width="100%" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-        <rect width="100%" height="100%" fill="#f8f8f8" />
-        <circle cx="200" cy="100" r="30" fill="${statusColor}" />
-        <text x="200" y="160" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold">${statusText}</text>
-        <text x="200" y="200" text-anchor="middle" font-family="sans-serif" font-size="14">Server: ${serverUrl}</text>
-        <text x="200" y="230" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#666">
-          ${this.isConnected ? 'Receiving data from server' : 'Waiting for connection...'}
-        </text>
-        <text x="200" y="260" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#888">
-          ${new Date().toLocaleTimeString()} - Vibe Eyes Debug
-        </text>
-      </svg>
-    `;
+    // Create a clean, well-formed SVG for data URL conversion
+    return `<svg width="400" height="300" viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+<rect width="100%" height="100%" fill="#f8f8f8" />
+<circle cx="200" cy="100" r="30" fill="${statusColor}" />
+<text x="200" y="160" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="bold">${statusText}</text>
+<text x="200" y="200" text-anchor="middle" font-family="sans-serif" font-size="14">Server: ${serverUrl}</text>
+<text x="200" y="230" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#666">${connectionMsg}</text>
+<text x="200" y="260" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#888">${timestamp} - Vibe Eyes Debug</text>
+</svg>`;
   }
 
   /**
@@ -608,22 +624,6 @@ class VibeEyesClient {
                     window.opener.postMessage('debugWindowClosed', '*');
                   }
                 });
-                
-                // Function to resize SVG to fit window
-                function resizeSvg() {
-                  const svgElements = document.querySelectorAll('svg');
-                  for (const svg of svgElements) {
-                    // Only modify styles, not attributes
-                    svg.style.width = '100%';
-                    svg.style.maxWidth = '100%';
-                  }
-                }
-                
-                // Resize on window resize
-                window.addEventListener('resize', resizeSvg);
-                
-                // Also call it after a short delay to ensure SVG is loaded
-                setTimeout(resizeSvg, 100);
               </script>
             </body>
           </html>
@@ -655,7 +655,16 @@ class VibeEyesClient {
           // Create a refresh interval to update the status display
           this._statusRefreshInterval = setInterval(() => {
             if (this.svgContainer && this.svgWindow && !this.svgWindow.closed && !this.isConnected) {
-              this.svgContainer.innerHTML = this._generateStatusSvg();
+              // If we have server data, don't update the SVG
+              if (!this.lastSvgData) {
+                // Generate new SVG status and convert to data URL
+                const svgContent = this._generateStatusSvg();
+                const svgDataUrl = this._convertSvgToDataUrl(svgContent);
+                
+                // Update the image
+                this.svgContainer.innerHTML = `<img src="${svgDataUrl}" alt="Debug Visualization" style="width:100%; max-height:100%; object-fit:contain;">`;
+              }
+              
               // Update the stats too
               if (this.statsContainer) {
                 const statusInfo = {
@@ -688,13 +697,22 @@ class VibeEyesClient {
       // Update the SVG content - only if we have valid references
       if (this.svgContainer && this.svgWindow && !this.svgWindow.closed) {
         try {
-          this.svgContainer.innerHTML = svgContent;
-          
-          // Make SVG fill the container width using only style properties
-          const svgElements = this.svgContainer.querySelectorAll('svg');
-          for (const svg of svgElements) {
-            svg.style.width = '100%';
-            svg.style.maxWidth = '100%';
+          // For SVG data from the server (lastSvgData), insert it directly
+          if (this.lastSvgData && svgContent === this.lastSvgData) {
+            this.svgContainer.innerHTML = svgContent;
+            
+            // Make SVG fill the container width using only style properties
+            const svgElements = this.svgContainer.querySelectorAll('svg');
+            for (const svg of svgElements) {
+              svg.style.width = '100%';
+              svg.style.maxWidth = '100%';
+            }
+          } else {
+            // For our status SVG, convert to data URL for img tag
+            const svgDataUrl = this._convertSvgToDataUrl(svgContent);
+            
+            // Use an img tag for better scaling
+            this.svgContainer.innerHTML = `<img src="${svgDataUrl}" alt="Debug Visualization" style="width:100%; max-height:100%; object-fit:contain;">`;
           }
         } catch (e) {
           // Error accessing container - window likely closed
